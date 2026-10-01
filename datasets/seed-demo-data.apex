@@ -357,6 +357,22 @@ List<techstarter__TTS_Agreement_Party__c> agreementParties = new List<techstarte
 };
 insert agreementParties;
 
+// E6 migration pattern: one Technology Coverage row @100% per existing Agreement.Technology__c
+// single lookup. Technology__c is retained as a display-only "Primary Technology" reference.
+List<techstarter__TTS_Technology_Coverage__c> technologyCoverages = new List<techstarter__TTS_Technology_Coverage__c>{
+    new techstarter__TTS_Technology_Coverage__c(
+        techstarter__TTS_Agreement__c = agreements[0].Id,
+        techstarter__TTS_Technology__c = technology.Id,
+        techstarter__Allocation_Percent__c = 100
+    ),
+    new techstarter__TTS_Technology_Coverage__c(
+        techstarter__TTS_Agreement__c = agreements[1].Id,
+        techstarter__TTS_Technology__c = technology.Id,
+        techstarter__Allocation_Percent__c = 100
+    )
+};
+insert technologyCoverages;
+
 List<techstarter__TTS_Royalty_Term__c> royaltyTerms = new List<techstarter__TTS_Royalty_Term__c>{
     new techstarter__TTS_Royalty_Term__c(
         techstarter__Agreement__c = agreements[0].Id,
@@ -549,6 +565,7 @@ System.assertEquals(1, [SELECT COUNT() FROM techstarter__TTS_Disclosure__c WHERE
 System.assertEquals(1, [SELECT COUNT() FROM techstarter__TTS_Funding_Award__c WHERE techstarter__Award_Number__c = :marker + '-AWD-001']);
 System.assertEquals(2, [SELECT COUNT() FROM techstarter__TTS_Protection__c WHERE techstarter__Technology__c = :technology.Id]);
 System.assertEquals(2, [SELECT COUNT() FROM techstarter__TTS_Agreement__c WHERE techstarter__Technology__c = :technology.Id]);
+System.assertEquals(2, [SELECT COUNT() FROM techstarter__TTS_Technology_Coverage__c WHERE techstarter__TTS_Technology__c = :technology.Id AND techstarter__Allocation_Percent__c = 100]);
 System.assertEquals(2, [SELECT COUNT() FROM techstarter__TTS_Law_Firm_Matter__c WHERE techstarter__Law_Firm_Matter_Key__c LIKE :marker + '%']);
 System.assertEquals(2, [SELECT COUNT() FROM techstarter__TTS_Royalty_Term__c WHERE techstarter__Agreement__c = :agreements[0].Id]);
 System.assertEquals(1, [SELECT COUNT() FROM techstarter__TTS_Mentoring_Interest__c WHERE techstarter__Mentoring_Opportunity__c = :mentoringOpportunity.Id AND techstarter__Selected_Mentor__c = true]);

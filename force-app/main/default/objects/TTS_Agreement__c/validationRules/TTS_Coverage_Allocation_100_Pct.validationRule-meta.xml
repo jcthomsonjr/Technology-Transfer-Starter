@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>TTS_Coverage_Allocation_100_Pct</fullName>
+    <active>true</active>
+    <description>Populated Technology Coverage allocations must sum to exactly 100%; agreements with no coverage rows or all-blank allocations are exempt. Total_Allocation__c is a Percent field (100% = 1.0), so the rule multiplies by 100 before comparing.</description>
+    <errorConditionFormula><![CDATA[
+AND(
+    NOT(ISBLANK(Total_Allocation__c)),
+    Total_Allocation__c <> 0,
+    ROUND(Total_Allocation__c * 100, 2) <> 100
+)
+]]></errorConditionFormula>
+    <errorMessage>Technology Coverage Allocation Percent values on this Agreement must sum to exactly 100% when populated.</errorMessage>
+</ValidationRule>

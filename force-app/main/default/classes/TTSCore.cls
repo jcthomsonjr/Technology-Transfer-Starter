@@ -50,7 +50,7 @@ public with sharing class TTSCore {
         // user's currency. The field only exists when multi-currency is enabled, so it is
         // added via dynamic SOQL to keep this class deployable in single-currency orgs.
         String parentQuery =
-            'SELECT Id, Type__c, Direction__c, Start_Date_Time__c, Recurring__c, End_Date_Time__c, Recurrence_Frequency__c, Agreed_Amount__c, Agreement__c, Agreement_Deliverable__c, Agreement_Party__c, Campaign__c, IP_Actual_Amount__c, IP_Contract__c, IP_External_Payment_Reference__c, IP_Internal_Payment_Reference__c, IP_Opportunity__c, IP_Purchase_Order__c, IP_Related_IP__c, Protection__c';
+            'SELECT Id, Type__c, Direction__c, Start_Date_Time__c, Recurring__c, End_Date_Time__c, Recurrence_Frequency__c, Agreed_Amount__c, Agreement__c, Agreement_Deliverable__c, Agreement_Party__c, Campaign__c, IP_Actual_Amount__c, IP_Contract__c, IP_External_Payment_Reference__c, IP_Internal_Payment_Reference__c, IP_Opportunity__c, IP_Purchase_Order__c, IP_Related_IP__c, Protection__c, Royalty_Term__c, Applied_Royalty_Rate__c, Reported_Royalty_Revenue__c, Royalty_Report_Start_Date__c, Royalty_Report_End_Date__c';
         if (UserInfo.isMultiCurrencyOrganization()) {
             parentQuery += ', CurrencyIsoCode';
         }
@@ -72,7 +72,10 @@ public with sharing class TTSCore {
             if (!childrenByParentId.containsKey(child.Transaction__c)) {
                 childrenByParentId.put(child.Transaction__c, new Map<Datetime, TTS_Transaction__c>());
             }
-            childrenByParentId.get(child.Transaction__c).put(child.IP_Transaction_Date_Time__c, child);
+            // Key on whole-second precision: the DB truncates Datetime to seconds on round-trip,
+            // so a re-run's recomputed (ms-precision) dates would otherwise miss these persisted
+            // children and duplicate them.
+            childrenByParentId.get(child.Transaction__c).put(toWholeSecond(child.IP_Transaction_Date_Time__c), child);
         }
 
         List<TTS_Transaction__c> allChildrenToDelete = new List<TTS_Transaction__c>();
@@ -137,13 +140,16 @@ public with sharing class TTSCore {
 
             // Create related records for each date if they don't already exist
             for (Datetime recordDate : dates) {
-                if (!existingChildrenByDate.containsKey(recordDate)) {
+                Datetime recordDateKey = toWholeSecond(recordDate);
+                if (!existingChildrenByDate.containsKey(recordDateKey)) {
                     TTS_Transaction__c newChild = parentRecord.clone();
                     newChild.Transaction__c = recordId;
                     newChild.IP_Transaction_Date_Time__c = recordDate;
                     newChild.IP_Expected_Payment_Date__c = recordDate;
+                    // A future occurrence is always unpaid; never inherit a Received/Paid parent status.
+                    newChild.Payment_Status__c = 'Scheduled';
                     allNewChildren.add(newChild);
-                    existingChildrenByDate.put(recordDate, newChild);
+                    existingChildrenByDate.put(recordDateKey, newChild);
                 }
             }
         }
@@ -160,6 +166,17 @@ public with sharing class TTSCore {
                 throw new TTS_TransactionException('Recurring Transaction Generation failed: ' + e.getMessage(), e);
             }
         }
+    }
+
+    // The DB stores Datetime at whole-second precision; normalizing dedup keys to seconds keeps
+    // a re-run's recomputed (ms-precision) dates from missing already-persisted children.
+    private static Datetime toWholeSecond(Datetime dt) {
+        if (dt == null) {
+            return null;
+        }
+        Long ms = dt.getTime();
+        Long wholeSecondMs = ms - Math.mod(ms, 1000);
+        return Datetime.newInstance(wholeSecondMs);
     }
 
     private static Datetime nextOccurrence(Datetime current, String frequency) {

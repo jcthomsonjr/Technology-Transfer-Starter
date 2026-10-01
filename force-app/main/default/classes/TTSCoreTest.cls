@@ -252,4 +252,84 @@ private class TTSCoreTest {
         }
     }
 
+    @isTest
+    static void generatedChildrenCarryRoyaltyFieldsAndResetPaymentStatus() {
+        User testUser = TTS_TestSetup.userWithPackagePermissionSet();
+        System.runAs(testUser) {
+            TTS_Transaction__c parent = [
+                SELECT Id FROM TTS_Transaction__c WHERE Transaction__c = null LIMIT 1
+            ];
+            // rate 5% x revenue 100 = 5.00, so IP_Actual_Amount__c stays consistent with the E1 rule.
+            parent.Applied_Royalty_Rate__c = 5;
+            parent.Reported_Royalty_Revenue__c = 100;
+            parent.IP_Actual_Amount__c = 5;
+            parent.Royalty_Report_Start_Date__c = BASE.date();
+            parent.Royalty_Report_End_Date__c = BASE.addMonths(1).date();
+            // Direction is Incoming, so 'Received' is the valid "already-settled" status here
+            // ('Paid' is only valid for Outgoing under the Direction-controlled picklist).
+            parent.Payment_Status__c = 'Received';
+            update parent;
+
+            TTSCore.RelatedRecordsInput input = new TTSCore.RelatedRecordsInput();
+            input.startDate = BASE;
+            input.endDate = BASE.addMonths(3);
+            input.frequency = 'Monthly';
+            input.recordId = parent.Id;
+
+            Test.startTest();
+            TTSCore.generateRecurringTransactionRecords(
+                new List<TTSCore.RelatedRecordsInput>{ input }
+            );
+            Test.stopTest();
+
+            Datetime firstOccurrence = BASE.addMonths(1);
+            TTS_Transaction__c child = [
+                SELECT Applied_Royalty_Rate__c, Reported_Royalty_Revenue__c,
+                       Royalty_Report_Start_Date__c, Royalty_Report_End_Date__c, Payment_Status__c
+                FROM TTS_Transaction__c
+                WHERE Transaction__c = :parent.Id AND IP_Transaction_Date_Time__c = :firstOccurrence
+                LIMIT 1
+            ];
+            Assert.areEqual(5, child.Applied_Royalty_Rate__c, 'Child must carry the parent royalty rate');
+            Assert.areEqual(100, child.Reported_Royalty_Revenue__c, 'Child must carry the parent reported revenue');
+            Assert.areEqual(BASE.date(), child.Royalty_Report_Start_Date__c, 'Child must carry the report start date');
+            Assert.areEqual(BASE.addMonths(1).date(), child.Royalty_Report_End_Date__c, 'Child must carry the report end date');
+            Assert.areEqual('Scheduled', child.Payment_Status__c, 'Generated child must reset to Scheduled, not inherit Paid');
+        }
+    }
+
+    @isTest
+    static void rerunningGeneratorDoesNotDuplicateChildren() {
+        User testUser = TTS_TestSetup.userWithPackagePermissionSet();
+        System.runAs(testUser) {
+            Id parentId = [
+                SELECT Id FROM TTS_Transaction__c WHERE Transaction__c = null LIMIT 1
+            ].Id;
+            TTSCore.RelatedRecordsInput input = new TTSCore.RelatedRecordsInput();
+            input.startDate = BASE;
+            input.endDate = BASE.addMonths(6);
+            input.frequency = 'Monthly';
+            input.recordId = parentId;
+            List<TTSCore.RelatedRecordsInput> inputs =
+                new List<TTSCore.RelatedRecordsInput>{ input };
+
+            Test.startTest();
+            TTSCore.generateRecurringTransactionRecords(inputs);
+            Integer countAfterFirstRun = [
+                SELECT COUNT() FROM TTS_Transaction__c WHERE Transaction__c = :parentId
+            ];
+            TTSCore.generateRecurringTransactionRecords(inputs);
+            Integer countAfterSecondRun = [
+                SELECT COUNT() FROM TTS_Transaction__c WHERE Transaction__c = :parentId
+            ];
+            Test.stopTest();
+
+            Assert.areEqual(
+                countAfterFirstRun,
+                countAfterSecondRun,
+                'Re-running the generator must not create duplicate children'
+            );
+        }
+    }
+
 }
